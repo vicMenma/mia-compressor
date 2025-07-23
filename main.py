@@ -33,9 +33,11 @@ class Config:
     WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}" if BOT_TOKEN else "/webhook"
     PORT = int(os.getenv("PORT", 8000))
     
-    # File limits
+    # File limits (Using Pyrogram for large files)
     MAX_AUDIO_SIZE = 500 * 1024 * 1024  # 500MB
-    MAX_VIDEO_SIZE = 900 * 1024 * 1024  # 900MB
+    MAX_VIDEO_SIZE = 500 * 1024 * 1024  # 500MB
+    TELEGRAM_BOT_API_LIMIT = 20 * 1024 * 1024  # 20MB Bot API limit
+    PYROGRAM_LIMIT = 2 * 1024 * 1024 * 1024  # 2GB Pyrogram limit
     
     @classmethod
     def validate(cls):
@@ -95,9 +97,48 @@ def check_ffmpeg():
 # Check FFmpeg availability
 FFMPEG_AVAILABLE = check_ffmpeg()
 
-async def download_file(file_id: str, file_path: str) -> Optional[str]:
-    """Download file from Telegram servers"""
+async def download_file_large(file_id: str, file_path: str, file_size: int = 0) -> Optional[str]:
+    """Download large files using Pyrogram (up to 2GB)"""
+    global pyrogram_started
+    
     try:
+        # Start Pyrogram client if not started
+        if not pyrogram_started:
+            await pyrogram_app.start()
+            pyrogram_started = True
+            logger.info("✅ Pyrogram client started for large file downloads")
+        
+        # Create temp directory if it doesn't exist
+        os.makedirs("/tmp/bot_files", exist_ok=True)
+        
+        logger.info(f"📥 Downloading large file ({format_file_size(file_size)}) using Pyrogram...")
+        
+        # Download file using Pyrogram
+        await pyrogram_app.download_media(file_id, file_path)
+        
+        if os.path.exists(file_path):
+            actual_size = os.path.getsize(file_path)
+            logger.info(f"✅ Large file downloaded successfully: {format_file_size(actual_size)}")
+            return file_path
+        else:
+            logger.error("❌ Downloaded file not found")
+            return None
+            
+    except Exception as e:
+        logger.error(f"❌ Error downloading large file: {e}")
+        return None
+
+async def download_file(file_id: str, file_path: str, file_size: int = 0) -> Optional[str]:
+    """Download file - uses appropriate method based on size"""
+    try:
+        # For files larger than Bot API limit, use Pyrogram
+        if file_size > Config.TELEGRAM_BOT_API_LIMIT:
+            logger.info(f"📁 Large file detected ({format_file_size(file_size)}), using Pyrogram...")
+            return await download_file_large(file_id, file_path, file_size)
+        
+        # For smaller files, use Bot API (faster)
+        logger.info(f"📁 Small file ({format_file_size(file_size)}), using Bot API...")
+        
         # Get file info
         get_file_url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/getFile"
         
@@ -107,7 +148,9 @@ async def download_file(file_id: str, file_path: str) -> Optional[str]:
                 
                 if not result.get("ok"):
                     logger.error(f"❌ Failed to get file info: {result}")
-                    return None
+                    # Fallback to Pyrogram for problematic files
+                    logger.info("🔄 Falling back to Pyrogram...")
+                    return await download_file_large(file_id, file_path, file_size)
                 
                 file_info = result["result"]
                 telegram_file_path = file_info["file_path"]
@@ -125,15 +168,19 @@ async def download_file(file_id: str, file_path: str) -> Optional[str]:
                             async for chunk in download_response.content.iter_chunked(8192):
                                 f.write(chunk)
                         
-                        logger.info(f"✅ File downloaded: {file_path}")
+                        logger.info(f"✅ File downloaded via Bot API: {file_path}")
                         return file_path
                     else:
-                        logger.error(f"❌ Failed to download file: {download_response.status}")
-                        return None
+                        logger.error(f"❌ Bot API download failed: {download_response.status}")
+                        # Fallback to Pyrogram
+                        logger.info("🔄 Falling back to Pyrogram...")
+                        return await download_file_large(file_id, file_path, file_size)
                         
     except Exception as e:
-        logger.error(f"❌ Error downloading file: {e}")
-        return None
+        logger.error(f"❌ Error in download_file: {e}")
+        # Fallback to Pyrogram
+        logger.info("🔄 Falling back to Pyrogram...")
+        return await download_file_large(file_id, file_path, file_size)
 
 async def compress_audio(input_path: str, output_path: str, preset: str = "medium") -> bool:
     """Compress audio file"""
@@ -271,24 +318,28 @@ async def process_media_file(user_id: int, file_info: dict, file_type: str):
         # Check file size limits
         if file_type == "audio" and file_size > Config.MAX_AUDIO_SIZE:
             await send_message(user_id, 
-                f"❌ **File too large!**\n"
-                f"Max audio size: {format_file_size(Config.MAX_AUDIO_SIZE)}\n"
-                f"Your file: {format_file_size(file_size)}")
+                f"❌ **Audio file too large!**\n\n"
+                f"📏 **Max audio size:** {format_file_size(Config.MAX_AUDIO_SIZE)}\n"
+                f"📁 **Your file:** {format_file_size(file_size)}\n\n"
+                f"💡 **Tip:** Try a shorter audio file or lower quality recording.")
             return
         
         if file_type == "video" and file_size > Config.MAX_VIDEO_SIZE:
             await send_message(user_id, 
-                f"❌ **File too large!**\n"
-                f"Max video size: {format_file_size(Config.MAX_VIDEO_SIZE)}\n"
-                f"Your file: {format_file_size(file_size)}")
+                f"❌ **Video file too large!**\n\n"
+                f"📏 **Max video size:** {format_file_size(Config.MAX_VIDEO_SIZE)}\n"
+                f"📁 **Your file:** {format_file_size(file_size)}\n\n"
+                f"💡 **Tip:** Try a shorter video or compress it first using other tools.")
             return
         
-        # Send processing message
+        # Send processing message with appropriate info
+        download_method = "Pyrogram" if file_size > Config.TELEGRAM_BOT_API_LIMIT else "Bot API"
         await send_message(user_id, 
             f"⚡ **Processing {file_type}...**\n\n"
             f"📁 Size: {format_file_size(file_size)}\n"
             f"⚙️ Quality: {user_state.get(f'{file_type}_preset', 'medium').title()}\n"
-            f"⏳ Please wait...")
+            f"📥 Method: {download_method}\n"
+            f"⏳ Please wait... (this may take a few minutes for large files)")
         
         # Generate unique filenames
         timestamp = int(datetime.now().timestamp())
@@ -296,7 +347,7 @@ async def process_media_file(user_id: int, file_info: dict, file_type: str):
         output_path = f"/tmp/bot_files/output_{user_id}_{timestamp}.{'mp3' if file_type == 'audio' else 'mp4'}"
         
         # Download file
-        downloaded_path = await download_file(file_id, input_path)
+        downloaded_path = await download_file(file_id, input_path, file_size)
         if not downloaded_path:
             await send_message(user_id, "❌ **Failed to download file!**\nPlease try again.")
             return
@@ -390,15 +441,17 @@ async def handle_start_command(user_id: int, username: str):
     
     welcome_msg = (
         "🤖 **Media Compressor Bot**\n\n"
-        "⚡ **Fast serverless compression!**\n\n"
+        "⚡ **Fast serverless compression with large file support!**\n\n"
         "🎯 **Features:**\n"
         "• High-quality audio & video compression\n"
         "• Multiple quality presets\n"
+        "• **Large file support up to 500MB**\n"
         "• Smart optimization algorithms\n"
         "• Fast cloud processing\n\n"
-        "📏 **Limits:**\n"
+        "📏 **File Size Limits:**\n"
         f"• Audio: {format_file_size(Config.MAX_AUDIO_SIZE)}\n"
         f"• Video: {format_file_size(Config.MAX_VIDEO_SIZE)}\n\n"
+        "💡 **Large files (>20MB) are supported using advanced download methods!**\n\n"
         "Choose your compression mode:"
     )
     
@@ -471,7 +524,8 @@ async def handle_callback_query(callback_query):
             response_msg = (
                 "🎧 **Audio Compression Mode**\n\n"
                 "📁 Send audio files, voice messages, or documents\n"
-                f"📏 Max size: {format_file_size(Config.MAX_AUDIO_SIZE)}\n\n"
+                f"📏 Max size: {format_file_size(Config.MAX_AUDIO_SIZE)}\n"
+                "🚀 **Large files supported!**\n\n"
                 "⚙️ **Quality Presets:**\n"
                 "🔊 **High**: 96kbps, Stereo (best quality)\n"
                 "🔉 **Medium**: 64kbps, Stereo (balanced)\n"
@@ -497,7 +551,8 @@ async def handle_callback_query(callback_query):
             response_msg = (
                 "🎥 **Video Compression Mode**\n\n"
                 "📁 Send video files or documents\n"
-                f"📏 Max size: {format_file_size(Config.MAX_VIDEO_SIZE)}\n\n"
+                f"📏 Max size: {format_file_size(Config.MAX_VIDEO_SIZE)}\n"
+                "🚀 **Large files supported!**\n\n"
                 "⚙️ **Quality Presets:**\n"
                 "📺 **High**: 480p, 25fps (best quality)\n"
                 "🖥️ **Medium**: 360p, 20fps (balanced)\n"
@@ -823,6 +878,15 @@ async def main():
     finally:
         logger.info("🧹 Shutting down...")
         cleanup_task.cancel()
+        
+        # Stop Pyrogram client if started
+        if pyrogram_started:
+            try:
+                await pyrogram_app.stop()
+                logger.info("✅ Pyrogram client stopped")
+            except Exception as e:
+                logger.error(f"❌ Error stopping Pyrogram: {e}")
+        
         await runner.cleanup()
         # Final cleanup
         await cleanup_old_files()
