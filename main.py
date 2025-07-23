@@ -27,23 +27,23 @@ logger = logging.getLogger(__name__)
 # Configuration with environment variables for Koyeb
 class Config:
     # Bot Credentials - Use environment variables for security
-    API_ID = os.getenv("API_ID")
-    API_HASH = os.getenv("API_HASH")
-    BOT_TOKEN = os.getenv("BOT_TOKEN")
-    ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+    API_ID = os.getenv("API_ID", "25012126")
+    API_HASH = os.getenv("API_HASH", "4f88010f067086691edf7e1296170248")
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "7550640813:AAHT5QL7sYIm-kb8q4ArgEtCE2nak_OJSyE")
+    ADMIN_USER_ID = os.getenv("ADMIN_USER_ID", "7156656832")
 
     # File size limits (adjusted for Koyeb)
-    MAX_AUDIO_SIZE = int(os.getenv("MAX_AUDIO_SIZE", 500 * 1024 * 1024))  # 500MB
-    MAX_VIDEO_SIZE = int(os.getenv("MAX_VIDEO_SIZE", 900 * 1024 * 1024))  # 900MB
+    MAX_AUDIO_SIZE = int(os.getenv("MAX_AUDIO_SIZE", 100 * 1024 * 1024))  # 100MB
+    MAX_VIDEO_SIZE = int(os.getenv("MAX_VIDEO_SIZE", 200 * 1024 * 1024))  # 200MB
     MIN_FILE_SIZE = 1024  # 1KB minimum
 
     # Rate limiting
-    MAX_FILES_PER_HOUR = int(os.getenv("MAX_FILES_PER_HOUR", 100))
-    MAX_FILES_PER_DAY = int(os.getenv("MAX_FILES_PER_DAY", 500))
+    MAX_FILES_PER_HOUR = int(os.getenv("MAX_FILES_PER_HOUR", 10))
+    MAX_FILES_PER_DAY = int(os.getenv("MAX_FILES_PER_DAY", 50))
 
     # Processing limits for Koyeb
     MAX_CONCURRENT_PROCESSES = int(os.getenv("MAX_CONCURRENT_PROCESSES", 2))
-    PROCESS_TIMEOUT = int(os.getenv("PROCESS_TIMEOUT", 1200))  # 20 minutes
+    PROCESS_TIMEOUT = int(os.getenv("PROCESS_TIMEOUT", 600))  # 10 minutes
 
     # Storage - Use /tmp for Koyeb
     TEMP_DIR = "/tmp"
