@@ -66,7 +66,7 @@ class Config:
 
     # Webhook settings for Koyeb (if needed)
     WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-    PORT = int(os.getenv("PORT")
+    PORT = int(os.getenv("PORT"))
 
 # Audio compression presets
 AUDIO_PRESETS = {
