@@ -1,5 +1,5 @@
 # Enhanced Telegram Media Compressor Bot for Koyeb
-# Optimized for serverless deployment
+# Optimized for serverless deployment - FIXED VERSION
 
 import os
 import tempfile
@@ -17,7 +17,7 @@ from pyrogram.errors import FloodWait, RPCError
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Configure logging for Koyeb
+# Configure logging for better debugging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
@@ -31,6 +31,21 @@ class Config:
     API_HASH = os.getenv("API_HASH")
     BOT_TOKEN = os.getenv("BOT_TOKEN")
     ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+
+    # Validate required environment variables
+    @classmethod
+    def validate(cls):
+        required_vars = ["API_ID", "API_HASH", "BOT_TOKEN"]
+        missing = [var for var in required_vars if not getattr(cls, var)]
+        if missing:
+            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
+        
+        # Convert API_ID to int if it exists
+        if cls.API_ID:
+            try:
+                cls.API_ID = int(cls.API_ID)
+            except ValueError:
+                raise ValueError("API_ID must be a valid integer")
 
     # File size limits (adjusted for Koyeb)
     MAX_AUDIO_SIZE = int(os.getenv("MAX_AUDIO_SIZE", 500 * 1024 * 1024))  # 500MB
@@ -353,14 +368,32 @@ async def compress_video_koyeb(input_path: str, output_path: str, preset: str, c
         logger.error(f"Video compression error: {e}")
         return False, {}, None
 
+# Validate configuration first
+try:
+    Config.validate()
+    logger.info("✅ Configuration validated successfully")
+except ValueError as e:
+    logger.error(f"❌ Configuration error: {e}")
+    exit(1)
+
 # Initialize global components
 ffmpeg_available = check_ffmpeg_installation()
 stats_manager = BotStats()
 rate_limiter = RateLimiter()
 processing_queue = ProcessingQueue()
 
-# Create app
-app = Client("koyeb_media_bot", api_id=Config.API_ID, api_hash=Config.API_HASH, bot_token=Config.BOT_TOKEN)
+# Create app with error handling
+try:
+    app = Client(
+        "koyeb_media_bot", 
+        api_id=Config.API_ID, 
+        api_hash=Config.API_HASH, 
+        bot_token=Config.BOT_TOKEN
+    )
+    logger.info("✅ Pyrogram client created successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to create Pyrogram client: {e}")
+    exit(1)
 
 # Global state management
 user_states: Dict[int, Dict] = {}
@@ -379,253 +412,278 @@ def get_user_state(user_id: int) -> Dict:
 
 @app.on_message(filters.command("start") & ~filters.me & ~filters.bot)
 async def start(client, message):
-    user_id = message.from_user.id
-    username = message.from_user.username or "Unknown"
-    logger.info(f"Start command received from user {user_id} (@{username})")
+    try:
+        user_id = message.from_user.id
+        username = message.from_user.username or "Unknown"
+        logger.info(f"Start command received from user {user_id} (@{username})")
 
-    # Reset user state
-    user_states.pop(user_id, None)
+        # Reset user state
+        user_states.pop(user_id, None)
 
-    user_stats = stats_manager.get_user_stats(user_id)
+        user_stats = stats_manager.get_user_stats(user_id)
 
-    markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🎧 Audio Compression", callback_data="mode_audio")],
-        [InlineKeyboardButton("🎥 Video Compression", callback_data="mode_video")],
-        [
-            InlineKeyboardButton("📊 My Stats", callback_data="user_stats"),
-            InlineKeyboardButton("ℹ️ Help", callback_data="help")
-        ]
-    ])
+        markup = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🎧 Audio Compression", callback_data="mode_audio")],
+            [InlineKeyboardButton("🎥 Video Compression", callback_data="mode_video")],
+            [
+                InlineKeyboardButton("📊 My Stats", callback_data="user_stats"),
+                InlineKeyboardButton("ℹ️ Help", callback_data="help")
+            ]
+        ])
 
-    welcome_msg = (
-        "🤖 **Media Compressor Bot (Koyeb)**\n\n"
-        "⚡ **Fast serverless compression!**\n\n"
-        "🎯 **Features:**\n"
-        "• High-quality audio & video compression\n"
-        "• 5 quality presets available\n"
-        "• Smart auto-optimization\n"
-        "• Fast serverless processing\n\n"
-        "📊 **Your Stats:**\n"
-        f"• Files processed: {user_stats['files']}\n"
-        f"• Space saved: {format_file_size(user_stats['bytes_saved'])}\n\n"
-        "📏 **Limits:**\n"
-        f"• Audio: {format_file_size(Config.MAX_AUDIO_SIZE)}\n"
-        f"• Video: {format_file_size(Config.MAX_VIDEO_SIZE)}\n\n"
-        "Choose your compression mode:"
-    )
+        welcome_msg = (
+            "🤖 **Media Compressor Bot (Koyeb)**\n\n"
+            "⚡ **Fast serverless compression!**\n\n"
+            "🎯 **Features:**\n"
+            "• High-quality audio & video compression\n"
+            "• 5 quality presets available\n"
+            "• Smart auto-optimization\n"
+            "• Fast serverless processing\n\n"
+            "📊 **Your Stats:**\n"
+            f"• Files processed: {user_stats['files']}\n"
+            f"• Space saved: {format_file_size(user_stats['bytes_saved'])}\n\n"
+            "📏 **Limits:**\n"
+            f"• Audio: {format_file_size(Config.MAX_AUDIO_SIZE)}\n"
+            f"• Video: {format_file_size(Config.MAX_VIDEO_SIZE)}\n\n"
+            "Choose your compression mode:"
+        )
 
-    await message.reply_text(welcome_msg, reply_markup=markup)
+        await message.reply_text(welcome_msg, reply_markup=markup)
+        logger.info(f"✅ Start message sent successfully to user {user_id}")
+
+    except Exception as e:
+        logger.error(f"❌ Error in start command: {e}")
+        try:
+            await message.reply_text("❌ An error occurred. Please try again later.")
+        except:
+            pass
 
 @app.on_callback_query()
 async def callback_handler(client, callback_query: CallbackQuery):
-    user_id = callback_query.from_user.id
-    username = callback_query.from_user.username or "Unknown"
-    data = callback_query.data
+    try:
+        user_id = callback_query.from_user.id
+        username = callback_query.from_user.username or "Unknown"
+        data = callback_query.data
 
-    logger.info(f"Callback received: '{data}' from user {user_id} (@{username})")
+        logger.info(f"Callback received: '{data}' from user {user_id} (@{username})")
 
-    user_state = get_user_state(user_id)
-    user_state["last_activity"] = time.time()
+        user_state = get_user_state(user_id)
+        user_state["last_activity"] = time.time()
 
-    if data.startswith("mode_"):
-        mode = data.replace("mode_", "")
-        user_state["mode"] = mode
+        if data.startswith("mode_"):
+            mode = data.replace("mode_", "")
+            user_state["mode"] = mode
 
-        if mode == "audio":
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🔊 Ultra High", callback_data="audio_ultra_high")],
-                [InlineKeyboardButton("📢 High Quality", callback_data="audio_high")],
-                [InlineKeyboardButton("🔉 Medium Quality ✓", callback_data="audio_medium")],
-                [InlineKeyboardButton("🔈 Low Quality", callback_data="audio_low")],
-                [InlineKeyboardButton("📱 Ultra Low", callback_data="audio_ultra_low")],
-                [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
-            ])
+            if mode == "audio":
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🔊 Ultra High", callback_data="audio_ultra_high")],
+                    [InlineKeyboardButton("📢 High Quality", callback_data="audio_high")],
+                    [InlineKeyboardButton("🔉 Medium Quality ✓", callback_data="audio_medium")],
+                    [InlineKeyboardButton("🔈 Low Quality", callback_data="audio_low")],
+                    [InlineKeyboardButton("📱 Ultra Low", callback_data="audio_ultra_low")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
+                ])
 
+                response_msg = (
+                    "🎧 **Audio Compression Mode**\n\n"
+                    "📁 Send audio files or voice messages\n"
+                    f"📏 Max size: {format_file_size(Config.MAX_AUDIO_SIZE)}\n\n"
+                    "⚙️ **Quality Presets:**\n"
+                    "🔊 **Ultra High**: 128kbps, Stereo\n"
+                    "📢 **High**: 96kbps, Stereo\n"
+                    "🔉 **Medium**: 64kbps, Stereo (Default)\n"
+                    "🔈 **Low**: 32kbps, Mono\n"
+                    "📱 **Ultra Low**: 16kbps, Mono\n\n"
+                    "Choose quality level:"
+                )
+
+            elif mode == "video":
+                if not ffmpeg_available:
+                    await callback_query.answer("❌ Video compression unavailable!")
+                    return
+
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🎬 Ultra High", callback_data="video_ultra_high")],
+                    [InlineKeyboardButton("📺 High Quality", callback_data="video_high")],
+                    [InlineKeyboardButton("🖥️ Medium Quality ✓", callback_data="video_medium")],
+                    [InlineKeyboardButton("📱 Low Quality", callback_data="video_low")],
+                    [InlineKeyboardButton("⚡ Ultra Low", callback_data="video_ultra_low")],
+                    [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
+                ])
+
+                response_msg = (
+                    "🎥 **Video Compression Mode**\n\n"
+                    "📁 Send video files to compress\n"
+                    f"📏 Max size: {format_file_size(Config.MAX_VIDEO_SIZE)}\n\n"
+                    "⚙️ **Quality Presets:**\n"
+                    "🎬 **Ultra High**: 720p, 25fps, 1000k\n"
+                    "📺 **High**: 480p, 25fps, 700k\n"
+                    "🖥️ **Medium**: 360p, 20fps, 500k\n"
+                    "📱 **Low**: 270p, 15fps, 300k\n"
+                    "⚡ **Ultra Low**: 240p, 15fps, 150k\n\n"
+                    "Choose quality level:"
+                )
+
+            await callback_query.message.reply_text(response_msg, reply_markup=markup)
+
+        elif data.startswith(("audio_", "video_")):
+            preset_type, quality = data.split("_", 1)
+            user_state[f"{preset_type}_preset"] = quality
+
+            quality_names = {
+                "ultra_high": "🎬 Ultra High",
+                "high": "📺 High",
+                "medium": "🖥️ Medium",
+                "low": "📱 Low",
+                "ultra_low": "⚡ Ultra Low"
+            }
+
+            quality_name = quality_names.get(quality, quality.title())
+
+            if preset_type == "audio":
+                preset_info = AUDIO_PRESETS[quality]
+                response_msg = (
+                    f"✅ **Audio quality set to: {quality_name}**\n\n"
+                    f"🎵 Bitrate: {preset_info['bitrate']}\n"
+                    f"📻 Channels: {preset_info['channels']}\n"
+                    f"📄 Format: {preset_info['format'].upper()}\n\n"
+                    "⚡ **Ready for processing!**\n"
+                    "Now send me audio files to compress!"
+                )
+            else:
+                preset_info = VIDEO_PRESETS[quality]
+                response_msg = (
+                    f"✅ **Video quality set to: {quality_name}**\n\n"
+                    f"📐 Resolution: {preset_info['scale']}\n"
+                    f"🎬 FPS: {preset_info['fps']}\n"
+                    f"📊 Video Bitrate: {preset_info['bitrate']}\n"
+                    f"🔊 Audio Bitrate: {preset_info['audio_bitrate']}\n\n"
+                    "⚡ **Ready for processing!**\n"
+                    "Now send me video files to compress!"
+                )
+
+            await callback_query.message.reply_text(response_msg)
+
+        elif data == "user_stats":
+            user_stats = stats_manager.get_user_stats(user_id)
             response_msg = (
-                "🎧 **Audio Compression Mode**\n\n"
-                "📁 Send audio files or voice messages\n"
-                f"📏 Max size: {format_file_size(Config.MAX_AUDIO_SIZE)}\n\n"
-                "⚙️ **Quality Presets:**\n"
-                "🔊 **Ultra High**: 128kbps, Stereo\n"
-                "📢 **High**: 96kbps, Stereo\n"
-                "🔉 **Medium**: 64kbps, Stereo (Default)\n"
-                "🔈 **Low**: 32kbps, Mono\n"
-                "📱 **Ultra Low**: 16kbps, Mono\n\n"
-                "Choose quality level:"
+                "📊 **Your Statistics**\n\n"
+                f"📁 Files processed: {user_stats['files']}\n"
+                f"💾 Space saved: {format_file_size(user_stats['bytes_saved'])}\n\n"
+                "📈 **Current Session:**\n"
+                f"⏱️ Queue position: {len(processing_queue.queue)}\n"
+                f"🔄 Active processes: {len(processing_queue.active_processes)}\n\n"
+                "⚡ **Powered by Koyeb**"
             )
 
-        elif mode == "video":
-            if not ffmpeg_available:
-                await callback_query.answer("❌ Video compression unavailable!")
-                return
+            await callback_query.message.reply_text(response_msg)
 
-            markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🎬 Ultra High", callback_data="video_ultra_high")],
-                [InlineKeyboardButton("📺 High Quality", callback_data="video_high")],
-                [InlineKeyboardButton("🖥️ Medium Quality ✓", callback_data="video_medium")],
-                [InlineKeyboardButton("📱 Low Quality", callback_data="video_low")],
-                [InlineKeyboardButton("⚡ Ultra Low", callback_data="video_ultra_low")],
-                [InlineKeyboardButton("🔙 Back", callback_data="back_main")]
-            ])
-
-            response_msg = (
-                "🎥 **Video Compression Mode**\n\n"
-                "📁 Send video files to compress\n"
-                f"📏 Max size: {format_file_size(Config.MAX_VIDEO_SIZE)}\n\n"
-                "⚙️ **Quality Presets:**\n"
-                "🎬 **Ultra High**: 720p, 25fps, 1000k\n"
-                "📺 **High**: 480p, 25fps, 700k\n"
-                "🖥️ **Medium**: 360p, 20fps, 500k\n"
-                "📱 **Low**: 270p, 15fps, 300k\n"
-                "⚡ **Ultra Low**: 240p, 15fps, 150k\n\n"
-                "Choose quality level:"
+        elif data == "help":
+            help_msg = (
+                "ℹ️ **How to Use This Bot**\n\n"
+                "1️⃣ Choose compression mode (Audio/Video)\n"
+                "2️⃣ Select quality preset\n"
+                "3️⃣ Send your media file\n"
+                "4️⃣ Wait for processing & download result\n\n"
+                "⚡ **Koyeb Features:**\n"
+                "• Fast serverless processing\n"
+                "• Reliable compression\n"
+                "• Multiple quality options\n"
+                "• Smart optimization\n\n"
+                "⚠️ **Rate Limits:**\n"
+                f"• {Config.MAX_FILES_PER_HOUR} files per hour\n"
+                f"• {Config.MAX_FILES_PER_DAY} files per day\n\n"
+                "💡 **Tip**: Use Medium quality for best balance!"
             )
 
-        await callback_query.message.reply_text(response_msg, reply_markup=markup)
+            await callback_query.message.reply_text(help_msg)
 
-    elif data.startswith(("audio_", "video_")):
-        preset_type, quality = data.split("_", 1)
-        user_state[f"{preset_type}_preset"] = quality
+        elif data == "back_main":
+            await start(client, callback_query.message)
 
-        quality_names = {
-            "ultra_high": "🎬 Ultra High",
-            "high": "📺 High",
-            "medium": "🖥️ Medium",
-            "low": "📱 Low",
-            "ultra_low": "⚡ Ultra Low"
-        }
+        await callback_query.answer("✅")
 
-        quality_name = quality_names.get(quality, quality.title())
-
-        if preset_type == "audio":
-            preset_info = AUDIO_PRESETS[quality]
-            response_msg = (
-                f"✅ **Audio quality set to: {quality_name}**\n\n"
-                f"🎵 Bitrate: {preset_info['bitrate']}\n"
-                f"📻 Channels: {preset_info['channels']}\n"
-                f"📄 Format: {preset_info['format'].upper()}\n\n"
-                "⚡ **Ready for processing!**\n"
-                "Now send me audio files to compress!"
-            )
-        else:
-            preset_info = VIDEO_PRESETS[quality]
-            response_msg = (
-                f"✅ **Video quality set to: {quality_name}**\n\n"
-                f"📐 Resolution: {preset_info['scale']}\n"
-                f"🎬 FPS: {preset_info['fps']}\n"
-                f"📊 Video Bitrate: {preset_info['bitrate']}\n"
-                f"🔊 Audio Bitrate: {preset_info['audio_bitrate']}\n\n"
-                "⚡ **Ready for processing!**\n"
-                "Now send me video files to compress!"
-            )
-
-        await callback_query.message.reply_text(response_msg)
-
-    elif data == "user_stats":
-        user_stats = stats_manager.get_user_stats(user_id)
-        response_msg = (
-            "📊 **Your Statistics**\n\n"
-            f"📁 Files processed: {user_stats['files']}\n"
-            f"💾 Space saved: {format_file_size(user_stats['bytes_saved'])}\n\n"
-            "📈 **Current Session:**\n"
-            f"⏱️ Queue position: {len(processing_queue.queue)}\n"
-            f"🔄 Active processes: {len(processing_queue.active_processes)}\n\n"
-            "⚡ **Powered by Koyeb**"
-        )
-
-        await callback_query.message.reply_text(response_msg)
-
-    elif data == "help":
-        help_msg = (
-            "ℹ️ **How to Use This Bot**\n\n"
-            "1️⃣ Choose compression mode (Audio/Video)\n"
-            "2️⃣ Select quality preset\n"
-            "3️⃣ Send your media file\n"
-            "4️⃣ Wait for processing & download result\n\n"
-            "⚡ **Koyeb Features:**\n"
-            "• Fast serverless processing\n"
-            "• Reliable compression\n"
-            "• Multiple quality options\n"
-            "• Smart optimization\n\n"
-            "⚠️ **Rate Limits:**\n"
-            f"• {Config.MAX_FILES_PER_HOUR} files per hour\n"
-            f"• {Config.MAX_FILES_PER_DAY} files per day\n\n"
-            "💡 **Tip**: Use Medium quality for best balance!"
-        )
-
-        await callback_query.message.reply_text(help_msg)
-
-    elif data == "back_main":
-        await start(client, callback_query.message)
-
-    await callback_query.answer("✅")
+    except Exception as e:
+        logger.error(f"❌ Error in callback handler: {e}")
+        try:
+            await callback_query.answer("❌ An error occurred")
+        except:
+            pass
 
 @app.on_message(filters.audio | filters.voice | filters.video | filters.document)
 async def handle_media(client, message):
-    user_id = message.from_user.id
-    username = message.from_user.username or "Unknown"
+    try:
+        user_id = message.from_user.id
+        username = message.from_user.username or "Unknown"
 
-    # Check rate limits
-    limits = rate_limiter.check_limits(user_id)
-    if limits["daily"]:
-        await message.reply_text("❌ **Daily limit exceeded!** Please try again tomorrow.")
-        return
-    if limits["hourly"]:
-        await message.reply_text("❌ **Hourly limit exceeded!** Please try again in an hour.")
-        return
+        # Check rate limits
+        limits = rate_limiter.check_limits(user_id)
+        if limits["daily"]:
+            await message.reply_text("❌ **Daily limit exceeded!** Please try again tomorrow.")
+            return
+        if limits["hourly"]:
+            await message.reply_text("❌ **Hourly limit exceeded!** Please try again in an hour.")
+            return
 
-    user_state = get_user_state(user_id)
+        user_state = get_user_state(user_id)
 
-    if not user_state["mode"]:
-        await message.reply_text(
-            "❌ **Please select a compression mode first!**\n"
-            "Use /start to choose Audio or Video compression."
+        if not user_state["mode"]:
+            await message.reply_text(
+                "❌ **Please select a compression mode first!**\n"
+                "Use /start to choose Audio or Video compression."
+            )
+            return
+
+        # Determine media type and get file info
+        media_file = None
+        if message.audio or message.voice:
+            media_file = message.audio or message.voice
+            media_type = "audio"
+            max_size = Config.MAX_AUDIO_SIZE
+        elif message.video:
+            media_file = message.video
+            media_type = "video"
+            max_size = Config.MAX_VIDEO_SIZE
+        elif message.document:
+            # Check if document is a media file
+            if message.document.mime_type:
+                if message.document.mime_type.startswith(('audio/', 'video/')):
+                    media_file = message.document
+                    media_type = "audio" if message.document.mime_type.startswith('audio/') else "video"
+                    max_size = Config.MAX_AUDIO_SIZE if media_type == "audio" else Config.MAX_VIDEO_SIZE
+
+        if not media_file:
+            await message.reply_text("❌ **Unsupported file type!** Please send audio or video files only.")
+            return
+
+        if media_file.file_size > max_size:
+            await message.reply_text(
+                f"❌ **File too large!**\n"
+                f"Max size for {media_type}: {format_file_size(max_size)}\n"
+                f"Your file: {format_file_size(media_file.file_size)}"
+            )
+            return
+
+        if media_file.file_size < Config.MIN_FILE_SIZE:
+            await message.reply_text("❌ **File too small!** Minimum size is 1KB.")
+            return
+
+        # Update rate limiter
+        rate_limiter.update_activity(user_id)
+
+        # Add to processing queue
+        await processing_queue.add_to_queue(
+            user_id,
+            process_media_file_koyeb,
+            client, message, media_file, media_type, user_state
         )
-        return
 
-    # Determine media type and get file info
-    media_file = None
-    if message.audio or message.voice:
-        media_file = message.audio or message.voice
-        media_type = "audio"
-        max_size = Config.MAX_AUDIO_SIZE
-    elif message.video:
-        media_file = message.video
-        media_type = "video"
-        max_size = Config.MAX_VIDEO_SIZE
-    elif message.document:
-        # Check if document is a media file
-        if message.document.mime_type:
-            if message.document.mime_type.startswith(('audio/', 'video/')):
-                media_file = message.document
-                media_type = "audio" if message.document.mime_type.startswith('audio/') else "video"
-                max_size = Config.MAX_AUDIO_SIZE if media_type == "audio" else Config.MAX_VIDEO_SIZE
-
-    if not media_file:
-        await message.reply_text("❌ **Unsupported file type!** Please send audio or video files only.")
-        return
-
-    if media_file.file_size > max_size:
-        await message.reply_text(
-            f"❌ **File too large!**\n"
-            f"Max size for {media_type}: {format_file_size(max_size)}\n"
-            f"Your file: {format_file_size(media_file.file_size)}"
-        )
-        return
-
-    if media_file.file_size < Config.MIN_FILE_SIZE:
-        await message.reply_text("❌ **File too small!** Minimum size is 1KB.")
-        return
-
-    # Update rate limiter
-    rate_limiter.update_activity(user_id)
-
-    # Add to processing queue
-    await processing_queue.add_to_queue(
-        user_id,
-        process_media_file_koyeb,
-        client, message, media_file, media_type, user_state
-    )
+    except Exception as e:
+        logger.error(f"❌ Error in handle_media: {e}")
+        try:
+            await message.reply_text("❌ An error occurred while processing your request. Please try again.")
+        except:
+            pass
 
 async def process_media_file_koyeb(client, message, media_file, media_type, user_state):
     """Process media file optimized for Koyeb"""
@@ -791,95 +849,106 @@ async def process_media_file_koyeb(client, message, media_file, media_type, user
         except:
             pass
 
-@app.on_message(filters.command("stats") & filters.user(int(Config.ADMIN_USER_ID)))
+@app.on_message(filters.command("stats") & filters.user(int(Config.ADMIN_USER_ID)) if Config.ADMIN_USER_ID else filters.command("stats") & filters.private)
 async def admin_stats(client, message):
     """Admin-only global statistics"""
-    stats = stats_manager.stats
-    uptime = time.time() - stats["start_time"]
-    uptime_str = str(timedelta(seconds=int(uptime)))
+    try:
+        stats = stats_manager.stats
+        uptime = time.time() - stats["start_time"]
+        uptime_str = str(timedelta(seconds=int(uptime)))
 
-    # Calculate today's stats
-    today = datetime.now().strftime("%Y-%m-%d")
-    today_stats = stats["daily_stats"].get(today, {"files": 0, "users": []})
+        # Calculate today's stats
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_stats = stats["daily_stats"].get(today, {"files": 0, "users": []})
 
-    stats_msg = (
-        f"📊 **Bot Statistics (Admin)**\n\n"
-        f"⏰ **Uptime**: {uptime_str}\n"
-        f"📁 **Total Files**: {stats['total_files_processed']}\n"
-        f"🎧 **Audio Files**: {stats['audio_files']}\n"
-        f"🎥 **Video Files**: {stats['video_files']}\n"
-        f"💾 **Total Space Saved**: {format_file_size(stats['total_bytes_saved'])}\n"
-        f"👥 **Total Users**: {len(stats['users'])}\n"
-        f"❌ **Errors**: {stats['errors']}\n\n"
-        f"📅 **Today's Activity**:\n"
-        f"• Files processed: {today_stats['files']}\n"
-        f"• Active users: {len(today_stats['users'])}\n\n"
-        f"🔄 **Current Queue**: {len(processing_queue.queue)}\n"
-        f"⚡ **Active Processes**: {len(processing_queue.active_processes)}\n\n"
-        f"⚡ **Koyeb Status**: Active"
-    )
+        stats_msg = (
+            f"📊 **Bot Statistics (Admin)**\n\n"
+            f"⏰ **Uptime**: {uptime_str}\n"
+            f"📁 **Total Files**: {stats['total_files_processed']}\n"
+            f"🎧 **Audio Files**: {stats['audio_files']}\n"
+            f"🎥 **Video Files**: {stats['video_files']}\n"
+            f"💾 **Total Space Saved**: {format_file_size(stats['total_bytes_saved'])}\n"
+            f"👥 **Total Users**: {len(stats['users'])}\n"
+            f"❌ **Errors**: {stats['errors']}\n\n"
+            f"📅 **Today's Activity**:\n"
+            f"• Files processed: {today_stats['files']}\n"
+            f"• Active users: {len(today_stats['users'])}\n\n"
+            f"🔄 **Current Queue**: {len(processing_queue.queue)}\n"
+            f"⚡ **Active Processes**: {len(processing_queue.active_processes)}\n\n"
+            f"⚡ **Koyeb Status**: Active"
+        )
 
-    await message.reply_text(stats_msg)
+        await message.reply_text(stats_msg)
+    except Exception as e:
+        logger.error(f"❌ Error in admin_stats: {e}")
+        await message.reply_text("❌ Error retrieving statistics")
 
-@app.on_message(filters.command("cleanup") & filters.user(int(Config.ADMIN_USER_ID)))
+@app.on_message(filters.command("cleanup") & filters.user(int(Config.ADMIN_USER_ID)) if Config.ADMIN_USER_ID else filters.command("cleanup") & filters.private)
 async def admin_cleanup(client, message):
     """Admin-only cleanup command"""
-    # Clean old user states
-    cleanup_old_states()
-
-    # Clean temp directory
     try:
-        temp_files = len([f for f in os.listdir(Config.TEMP_DIR) if f.startswith(('input.', 'compressed.', 'temp_'))])
-        for file in os.listdir(Config.TEMP_DIR):
-            if file.startswith(('input.', 'compressed.', 'temp_')):
-                try:
-                    os.remove(os.path.join(Config.TEMP_DIR, file))
-                except:
-                    pass
-    except:
-        temp_files = 0
+        # Clean old user states
+        cleanup_old_states()
 
-    await message.reply_text(
-        f"🧹 **Cleanup completed!**\n\n"
-        f"• Cleaned {len(user_states)} user states\n"
-        f"• Cleaned temp files: {temp_files}\n"
-        f"• Queue cleared: {len(processing_queue.queue)} items\n\n"
-        f"✅ System optimized!"
-    )
+        # Clean temp directory
+        try:
+            temp_files = len([f for f in os.listdir(Config.TEMP_DIR) if f.startswith(('input.', 'compressed.', 'temp_'))])
+            for file in os.listdir(Config.TEMP_DIR):
+                if file.startswith(('input.', 'compressed.', 'temp_')):
+                    try:
+                        os.remove(os.path.join(Config.TEMP_DIR, file))
+                    except:
+                        pass
+        except:
+            temp_files = 0
+
+        await message.reply_text(
+            f"🧹 **Cleanup completed!**\n\n"
+            f"• Cleaned {len(user_states)} user states\n"
+            f"• Cleaned temp files: {temp_files}\n"
+            f"• Queue cleared: {len(processing_queue.queue)} items\n\n"
+            f"✅ System optimized!"
+        )
+    except Exception as e:
+        logger.error(f"❌ Error in admin_cleanup: {e}")
+        await message.reply_text("❌ Error during cleanup")
 
 @app.on_message(filters.command("help"))
 async def help_command(client, message):
     """Enhanced help command"""
-    help_text = (
-        "ℹ️ **Media Compressor Bot Help**\n\n"
-        "⚡ **Powered by Koyeb for fast processing!**\n\n"
-        "📋 **Commands:**\n"
-        "• /start - Main menu and mode selection\n"
-        "• /help - Show this help message\n\n"
-        "🎯 **How to Use:**\n"
-        "1. Use /start to choose compression mode\n"
-        "2. Select quality preset (Ultra High to Ultra Low)\n"
-        "3. Send your audio/video file\n"
-        "4. Wait for processing\n"
-        "5. Download compressed result\n\n"
-        "⚡ **Koyeb Benefits:**\n"
-        "• Fast serverless processing\n"
-        "• Reliable compression\n"
-        "• Multiple quality options\n"
-        "• Smart optimization\n\n"
-        "📊 **Supported Formats:**\n"
-        "• Audio: MP3, AAC, OGG, FLAC, WAV\n"
-        "• Video: MP4, AVI, MKV, MOV, WMV\n\n"
-        "🔧 **Quality Presets:**\n"
-        "• Ultra High: Best quality, larger size\n"
-        "• High: Excellent quality, good size\n"
-        "• Medium: Balanced quality/size\n"
-        "• Low: Smaller size, good quality\n"
-        "• Ultra Low: Smallest size, basic quality\n\n"
-        "❓ **Need help?** Contact @kinkum1"
-    )
+    try:
+        help_text = (
+            "ℹ️ **Media Compressor Bot Help**\n\n"
+            "⚡ **Powered by Koyeb for fast processing!**\n\n"
+            "📋 **Commands:**\n"
+            "• /start - Main menu and mode selection\n"
+            "• /help - Show this help message\n\n"
+            "🎯 **How to Use:**\n"
+            "1. Use /start to choose compression mode\n"
+            "2. Select quality preset (Ultra High to Ultra Low)\n"
+            "3. Send your audio/video file\n"
+            "4. Wait for processing\n"
+            "5. Download compressed result\n\n"
+            "⚡ **Koyeb Benefits:**\n"
+            "• Fast serverless processing\n"
+            "• Reliable compression\n"
+            "• Multiple quality options\n"
+            "• Smart optimization\n\n"
+            "📊 **Supported Formats:**\n"
+            "• Audio: MP3, AAC, OGG, FLAC, WAV\n"
+            "• Video: MP4, AVI, MKV, MOV, WMV\n\n"
+            "🔧 **Quality Presets:**\n"
+            "• Ultra High: Best quality, larger size\n"
+            "• High: Excellent quality, good size\n"
+            "• Medium: Balanced quality/size\n"
+            "• Low: Smaller size, good quality\n"
+            "• Ultra Low: Smallest size, basic quality\n\n"
+            "❓ **Need help?** Contact @kinkum1"
+        )
 
-    await message.reply_text(help_text)
+        await message.reply_text(help_text)
+    except Exception as e:
+        logger.error(f"❌ Error in help_command: {e}")
 
 def cleanup_old_states():
     """Clean up old user states"""
@@ -910,16 +979,19 @@ async def health_check(request):
 
 async def create_web_server():
     """Create web server for health checks"""
-    app_web = web.Application()
-    app_web.router.add_get('/health', health_check)
-    app_web.router.add_get('/', health_check)
-    
-    runner = web.AppRunner(app_web)
-    await runner.setup()
-    
-    site = web.TCPSite(runner, '0.0.0.0', Config.PORT)
-    await site.start()
-    logger.info(f"Web server started on port {Config.PORT}")
+    try:
+        app_web = web.Application()
+        app_web.router.add_get('/health', health_check)
+        app_web.router.add_get('/', health_check)
+        
+        runner = web.AppRunner(app_web)
+        await runner.setup()
+        
+        site = web.TCPSite(runner, '0.0.0.0', Config.PORT)
+        await site.start()
+        logger.info(f"✅ Web server started on port {Config.PORT}")
+    except Exception as e:
+        logger.error(f"❌ Failed to start web server: {e}")
 
 async def main():
     """Main function optimized for Koyeb deployment"""
@@ -945,6 +1017,14 @@ async def main():
         logger.info("✅ Bot started successfully!")
         logger.info("📱 Bot is ready to receive messages!")
 
+        # Test bot connection
+        try:
+            me = await app.get_me()
+            logger.info(f"✅ Bot authenticated as: @{me.username} ({me.first_name})")
+        except Exception as e:
+            logger.error(f"❌ Bot authentication failed: {e}")
+            raise
+
         # Keep the bot running
         logger.info("🔄 Bot is running on Koyeb...")
         await asyncio.Event().wait()  # Run forever
@@ -969,7 +1049,11 @@ if __name__ == "__main__":
     import sys
     
     def install_package(package):
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+            logger.info(f"✅ Installed {package}")
+        except Exception as e:
+            logger.error(f"❌ Failed to install {package}: {e}")
     
     required_packages = [
         "pyrogram",
@@ -978,15 +1062,18 @@ if __name__ == "__main__":
         "pillow"
     ]
     
+    logger.info("🔧 Checking required packages...")
     for package in required_packages:
         try:
             __import__(package.replace("-", "_"))
+            logger.info(f"✅ {package} already installed")
         except ImportError:
-            logger.info(f"Installing {package}...")
+            logger.info(f"📦 Installing {package}...")
             install_package(package)
     
     # Run the bot
     try:
+        logger.info("🚀 Starting bot...")
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("🔴 Bot stopped by user")
