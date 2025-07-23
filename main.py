@@ -208,12 +208,17 @@ async def upload_file(chat_id: int, file_path: str, filename: str, file_type: st
     try:
         url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/send{file_type.title()}"
         
-        with open(file_path, 'rb') as file:
-            files = {file_type: (filename, file, 'application/octet-stream')}
-            data = {'chat_id': chat_id}
+        # Create form data for multipart upload
+        data = web.FormData()
+        data.add_field('chat_id', str(chat_id))
+        
+        with open(file_path, 'rb') as file_content:
+            data.add_field(file_type, file_content, 
+                          filename=filename, 
+                          content_type='application/octet-stream')
             
             async with ClientSession() as session:
-                async with session.post(url, data=data, data=files) as response:
+                async with session.post(url, data=data) as response:
                     result = await response.json()
                     
                     if result.get("ok"):
