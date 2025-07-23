@@ -358,6 +358,8 @@ async def setup_webhook():
         logger.warning("⚠️ WEBHOOK_URL not configured")
         return False
     
+    # Fix: Properly construct the webhook URL
+    # Make sure WEBHOOK_URL doesn't end with a slash and add the path
     webhook_url = f"{Config.WEBHOOK_URL.rstrip('/')}{Config.WEBHOOK_PATH}"
     
     url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/setWebhook"
@@ -376,7 +378,7 @@ async def setup_webhook():
         except Exception as e:
             logger.error(f"❌ Error setting webhook: {e}")
             return False
-
+            
 async def get_bot_info():
     """Get bot information"""
     url = f"https://api.telegram.org/bot{Config.BOT_TOKEN}/getMe"
