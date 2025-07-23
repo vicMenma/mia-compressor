@@ -1,0 +1,37 @@
+[app]
+name = "mia-compressor"
+
+[[app.services]]
+name = "bot"
+type = "web"
+
+[app.services.build]
+type = "docker"
+context = "."
+dockerfile = "Dockerfile"
+
+[app.services.instance]
+type = "nano"  # Use nano, micro, or small based on your needs
+
+[app.services.ports]
+port = 8000
+protocol = "http"
+
+[app.services.routes]
+path = "/"
+
+[app.services.health_check]
+http = "/health"
+
+[app.services.env]
+# These will be set in Koyeb dashboard
+# API_ID = ""
+# API_HASH = ""  
+# BOT_TOKEN = ""
+# ADMIN_USER_ID = ""
+# MAX_AUDIO_SIZE = "524288000"  # 500MB
+# MAX_VIDEO_SIZE = "943718400"  # 900MB
+# MAX_FILES_PER_HOUR = "100"
+# MAX_FILES_PER_DAY = "500"
+# MAX_CONCURRENT_PROCESSES = "2"
+# PROCESS_TIMEOUT = "1200"
