@@ -31,7 +31,7 @@ class Config:
     API_ID = os.getenv("API_ID")
     API_HASH = os.getenv("API_HASH")
     BOT_TOKEN = os.getenv("BOT_TOKEN")
-    ADMIN_USER_ID = os.getenv("ADMIN_USER_ID")
+    USER_ID = os.getenv("USER_ID")
 
     # Validate required environment variables
     @classmethod
