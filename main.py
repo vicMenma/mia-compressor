@@ -48,25 +48,25 @@ class Config:
                 raise ValueError("API_ID must be a valid integer")
 
     # File size limits (adjusted for Koyeb)
-    MAX_AUDIO_SIZE = int(os.getenv("MAX_AUDIO_SIZE", 500 * 1024 * 1024))  # 500MB
-    MAX_VIDEO_SIZE = int(os.getenv("MAX_VIDEO_SIZE", 900 * 1024 * 1024))  # 900MB
+    MAX_AUDIO_SIZE = int(os.getenv("MAX_AUDIO_SIZE"))  # 500MB
+    MAX_VIDEO_SIZE = int(os.getenv("MAX_VIDEO_SIZE"))  # 900MB
     MIN_FILE_SIZE = 1024  # 1KB minimum
 
     # Rate limiting
-    MAX_FILES_PER_HOUR = int(os.getenv("MAX_FILES_PER_HOUR", 100))
-    MAX_FILES_PER_DAY = int(os.getenv("MAX_FILES_PER_DAY", 500))
+    MAX_FILES_PER_HOUR = int(os.getenv("MAX_FILES_PER_HOUR"))
+    MAX_FILES_PER_DAY = int(os.getenv("MAX_FILES_PER_DAY"))
 
     # Processing limits for Koyeb
-    MAX_CONCURRENT_PROCESSES = int(os.getenv("MAX_CONCURRENT_PROCESSES", 2))
-    PROCESS_TIMEOUT = int(os.getenv("PROCESS_TIMEOUT", 1200))  # 20 minutes
+    MAX_CONCURRENT_PROCESSES = int(os.getenv("MAX_CONCURRENT_PROCESSES"))
+    PROCESS_TIMEOUT = int(os.getenv("PROCESS_TIMEOUT"))  # 20 minutes
 
     # Storage - Use /tmp for Koyeb
     TEMP_DIR = "/tmp"
     STATS_FILE = "/tmp/bot_stats.json"
 
     # Webhook settings for Koyeb (if needed)
-    WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
-    PORT = int(os.getenv("PORT", 8000))
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    PORT = int(os.getenv("PORT")
 
 # Audio compression presets
 AUDIO_PRESETS = {
